@@ -8,7 +8,7 @@ import json
 import requests
 import time
 import socket
-from multiprocessing import Process
+from threading import Thread
 
 def connect_gps(address, port):
     gpsclient = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -36,7 +36,7 @@ def write_data_from_gps(address, port, datadict):
     write_data(get_gps, (address, port), datadict, "gps")
 
 def process_gps(address, port, datadict):
-    p = Process(target=write_data_from_gps, args=(address, port, datadict))
+    p = Thread(target=write_data_from_gps, args=(address, port, datadict))
     return p
     
 def init_pins(board, pindict):
@@ -64,7 +64,7 @@ def write_data_from_pin(board, pin_number, pin_type, datadict, dataname):
 def process_pins(board, pindict, datadict):
     process_stack = []
     for dataname, pi in pindict:
-        p = Process(target=write_data_from_pin, args=(board, *pi, datadict, dataname))
+        p = Thread(target=write_data_from_pin, args=(board, *pi, datadict, dataname))
         process_stack.append(p)
     return process_stack
 
@@ -110,10 +110,10 @@ def mainloop(sourcename, board, pindict, full_address, gps_address, gps_port):
 
 def main(device_name, board, pindict, server_address, server_port, gps_address, gps_port, delay):
     init_pins(board, pindict)
+    time.sleep(1)
     full_address = "http://" + str(server_address) + ":" + str(server_port) + "/"
     while True:
         mainloop(device_name, board, pindict, full_address, gps_address, gps_port) #ip server
-        print("ok")
         time.sleep(delay)
     
 if __name__=="__main__":
@@ -126,8 +126,8 @@ if __name__=="__main__":
     pindict = {"co": (0, "a"), "sound": (1, "a"), "light": (2, "a")} 
     server_address = "192.168.8.69"
     server_port = 8080
-    gps_address = "292.168.8.110"
+    gps_address = "192.168.8.110"
     gps_port = 8080
     delay = 2
     
-    main(device_name, board, pindict, server_address, server_port, gps_address, gps_port)
+    main(device_name, board, pindict, server_address, server_port, gps_address, gps_port, delay)
