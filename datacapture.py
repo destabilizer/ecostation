@@ -8,35 +8,43 @@ import json
 import requests
 import time
 import socket
-from threading import Thread
+from kthread import KThread
+
+gpsclient = None
+sendthread = None
 
 def connect_gps(address, port):
+    global gpsclient
     gpsclient = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     gpsclient.connect((address, port))
     return gpsclient
 
-def get_raw_gps(gpsclient):
+def get_raw_gps():
     gpsclient.send(b'GET')
-    answer = bytes()
-    c = b''
-    while c != b"\n":
-        c = gpsclient.recv(1)
-        answer += c
-    return answer
+    b = gpsclient.recv(4096)
+    return b
 
 def convert_gps(bytes_gps_data):
-    return str(bytes_gps_data)
+    gps = str(bytes_gps_data.split(b'\n')[-2])
+    list_gps = gps.split('   ')
+    datadict = {}
+    datadict["gps_timestamp"] = list_gps[0][2:]
+    datadict["latitude"] = list_gps[1]
+    datadict["longitude"] = list_gps[2]
+    datadict["height"] = list_gps[3]
+    return datadict
 
 def get_gps(address, port):
-    c = connect_gps(address, port)
-    r = get_raw_gps(c)
+    r = get_raw_gps()
     return convert_gps(r)
 
 def write_data_from_gps(address, port, datadict):
-    write_data(get_gps, (address, port), datadict, "gps")
+    datadict.update(get_gps(address, port))
+    datadict["gps_collected"] = True
 
 def process_gps(address, port, datadict):
-    p = Thread(target=write_data_from_gps, args=(address, port, datadict))
+    p = KThread(target=write_data_from_gps, args=(address, port, datadict))
+    p.setName("gps")
     return p
     
 def init_pins(board, pindict):
@@ -60,19 +68,21 @@ def write_data(func, args, datadict, dataname):
 
 def write_data_from_pin(board, pin_number, pin_type, datadict, dataname):
     write_data(get_data_from_pin, (board, pin_number, pin_type), datadict, dataname)
+    datadict[dataname+"_collected"] = True
 
 def process_pins(board, pindict, datadict):
     process_stack = []
-    for dataname, pi in pindict:
-        p = Thread(target=write_data_from_pin, args=(board, *pi, datadict, dataname))
+    for dataname, pi in pindict.items():
+        p = KThread(target=write_data_from_pin, args=(board, *pi, datadict, dataname))
+        p.setName(dataname)
         process_stack.append(p)
     return process_stack
 
-def apply_process_stack(process_stack):
+def start_process_stack(process_stack):
     for p in process_stack:
+        print(p.getName())
         p.start()
-    for p in process_stack:
-        p.join()
+        print("Started!")
 
 def join_process_stack(process_stack):
     for d, p in process_stack:
@@ -84,37 +94,61 @@ def send_data(dictdata, sourcename, full_address):
     req = requests.post(full_address, json=dictdata)
     return (req.status_code, req.reason)
 
+def finish_thread(kthr):
+    if kthr.isAlive():
+        kthr.terminate()
+        print("Thread", kthr.getName(), "is killed!")
+    else:
+        kthr.join()
+        print("Thread", kthr.getName(), "is finished")
 
-def testloop():
-    data = {"temp": 20, "dust": 0.4}
-    while True:
-        mainloop("testclient", "http://127.0.0.1:8080/")
-        sleep(1)
+def new_send_thread(data, device_name, full_address):
+    global sendthread
+    sendthread = KThread(target=send_data, args=(data, device_name, full_address))
 
-def test():
-    ...
+def start_send_thread():
+    global sendthread
+    sendthread.start()
 
-def mainloop(sourcename, board, pindict, full_address, gps_address, gps_port):
-    data = {}
-    process_stack = process_pins(board, pindict, data)
-    pgps = process_gps(gps_address, gps_port, data)
-    process_stack.append(pgps)
-    apply_process_stack(process_stack)
-    print("Collected data: ", data)
-    try:
-        print("starting sending data")
-        ans = send_data(data, sourcename, full_address)
-        print(ans)
-    except:
-        print("Unseccessful POST") 
+def finish_send_thread():
+    finish_thread(sendthread)
+
+def finish_process_stack(process_stack):
+    for p in process_stack:
+        finish_thread(p)
+
+def new_data(data, pindict):
+    for k in pindict.keys():
+        data[k+"_collected"]=False
+    data["gps_collected"]=False
+
+#def test():
+#    data = {"temp": 20, "dust": 0.4}
+#    while True:
+#        mainloop("testclient", "http://127.0.0.1:8080/")
+#        sleep(1)
 
 def main(device_name, board, pindict, server_address, server_port, gps_address, gps_port, delay):
     init_pins(board, pindict)
+    connect_gps(gps_address, gps_port)
     time.sleep(1)
     full_address = "http://" + str(server_address) + ":" + str(server_port) + "/"
+    data = {}
+    new_send_thread(data, device_name, full_address)
     while True:
-        mainloop(device_name, board, pindict, full_address, gps_address, gps_port) #ip server
+        print("starting sending data")
+        start_send_thread()
+        new_data(data, pindict)
+        process_stack = process_pins(board, pindict, data)
+        pgps = process_gps(gps_address, gps_port, data)
+        process_stack.append(pgps)
+        data["timestamp"] = str(int(time.time()))
+        start_process_stack(process_stack)
         time.sleep(delay)
+        finish_process_stack(process_stack)
+        print("Collected data: ", data)
+        finish_send_thread()
+        new_send_thread(data.copy(), device_name, full_address)
     
 if __name__=="__main__":
     from pyfirmata2 import Arduino
@@ -128,6 +162,6 @@ if __name__=="__main__":
     server_port = 8080
     gps_address = "192.168.8.110"
     gps_port = 8080
-    delay = 2
+    delay = 1
     
     main(device_name, board, pindict, server_address, server_port, gps_address, gps_port, delay)
