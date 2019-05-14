@@ -6,7 +6,22 @@ This is a simple script that captures data from sensors and send it to the ecost
 
 import json
 import requests
-from time import sleep
+import time
+import socket
+
+def connect_gps(address, port):
+    global gpsclient
+    gpsclient = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    gpsclient.connect((address, port))
+
+def get_raw_gps():
+    gpsclient.send(b'GET')
+    answer = bytes()
+    c = b''
+    while c != b"\n":
+        c = gpsclient.recv(1)
+        answer += c
+    return answer
 
 def send_data(dictdata, sourcename, full_address):
     dictdata["type"] = "data"
@@ -22,14 +37,20 @@ def get_data():
     value_light = board.analog[2].read()
     value_sound = board.analog[1].read()
     value_co = board.analog[0].read()
+    llh_gps = requests.get('https://192.128.8.110') #ip rover
+    #parsing into value_gps
     return {"light": value_light, "sound": value_sound, "co": value_co}
 
 def mainloop(sourcename, full_address):
     d = get_data()
+    print(d)
     try:
-        send_data(d, sourcename, full_address)
+        print("starting sending data")
+        ans = send_data(d, sourcename, full_address)
+        print(ans)
     except:
         print("Unseccessful POST")
+
         
 def maintest():
     global get_data
@@ -50,11 +71,10 @@ def main():
     board.analog[1].enable_reporting()
     board.analog[0].enable_reporting()
 
-    time.sleep(3)
-
     while True:
-        mainloop("lattepanda1", "https://:8080/")
-        sleep(2)
+        mainloop("lattepanda1", "http://192.168.8.69:8080/") #ip server
+        print("ok")
+        time.sleep(2)
     
 if __name__=="__main__":
      main()
