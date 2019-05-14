@@ -119,7 +119,10 @@ def finish_process_stack(process_stack):
         finish_thread(p)
 
 def new_data(data, pindict):
-    data["timestamp"] = str(int(time.time()))
+    mil = int(time.time()*1000)%1000
+    ts = time.gmtime()
+    hts = time.strftime("%Y/%m/%d %H:%M:%S", ts)
+    data["timestamp"] = hts + "." + str(mil)
     for k in pindict.keys():
         data[k+"_collected"]=False
     data["gps_collected"]=False
@@ -127,7 +130,9 @@ def new_data(data, pindict):
 def create_local_db(mongo_adress, mongo_port):
     from pymongo import MongoClient
     global local_db
-    local_db = MongoClient()[str(int(time.time()))]
+    ts = time.gmtime()
+    hts = time.strftime("ts%Y-%m-%d_%H:%M:%S", ts)
+    local_db = MongoClient()[hts]
 
 def isert_local_db(data):
     local_db.insert_one(data)
