@@ -119,37 +119,58 @@ def finish_process_stack(process_stack):
         finish_thread(p)
 
 def new_data(data, pindict):
+    data["timestamp"] = str(int(time.time()))
     for k in pindict.keys():
         data[k+"_collected"]=False
     data["gps_collected"]=False
 
+def create_local_db(mongo_adress, mongo_port):
+    from pymongo import MongoClient
+    global local_db
+    local_db = MongoClient()[str(int(time.time()))]
+
+def isert_local_db(data):
+    local_db.insert_one(data)
+    
 #def test():
 #    data = {"temp": 20, "dust": 0.4}
 #    while True:
 #        mainloop("testclient", "http://127.0.0.1:8080/")
 #        sleep(1)
 
-def main(device_name, board, pindict, server_address, server_port, gps_address, gps_port, delay):
+def main(device_name, board, pindict,
+         server_address, server_port,
+         gps_address,       gps_port,
+         mongo_address,   mongo_port
+         delay, use_local_db):
+
     init_pins(board, pindict)
     connect_gps(gps_address, gps_port)
     time.sleep(1)
-    full_address = "http://" + str(server_address) + ":" + str(server_port) + "/"
+    if use_local_db: create_local_db(mongo_adress, mongo_port)
+    full_address = "http://" + str(server_address) +\
+                       + ":" + str(server_port) + "/"
     data = {}
     new_send_thread(data, device_name, full_address)
     while True:
         print("starting sending data")
         start_send_thread()
+        
         new_data(data, pindict)
         process_stack = process_pins(board, pindict, data)
         pgps = process_gps(gps_address, gps_port, data)
         process_stack.append(pgps)
-        data["timestamp"] = str(int(time.time()))
+        
         start_process_stack(process_stack)
-        time.sleep(delay)
+        time.sleep(delay) # constant delay for catching data
         finish_process_stack(process_stack)
         finish_send_thread()
-        print("Collected data: ", data)
-        new_send_thread(data.copy(), device_name, full_address)
+
+        cdata = data.copy()
+        print("Collected data: ", cdata)
+        new_send_thread(cdata, device_name, full_address)
+        if use_local_db: insert_local_db(cdata)
+            
     
 if __name__=="__main__":
     from pyfirmata2 import Arduino
@@ -164,5 +185,12 @@ if __name__=="__main__":
     gps_address = "192.168.8.110"
     gps_port = 8080
     delay = 1
+    use_local_db = False
+    mongo_address = None
+    mongo_port = None
     
-    main(device_name, board, pindict, server_address, server_port, gps_address, gps_port, delay)
+    main(device_name, board, pindict,
+         server_address, server_port,
+         gps_address        gps_port,
+         mongo_address,   mongo_port
+         delay, use_local_db)
