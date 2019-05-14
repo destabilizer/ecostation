@@ -105,6 +105,7 @@ def finish_thread(kthr):
 def new_send_thread(data, device_name, full_address):
     global sendthread
     sendthread = KThread(target=send_data, args=(data, device_name, full_address))
+    sendthread.setName("data_send")
 
 def start_send_thread():
     global sendthread
@@ -146,8 +147,8 @@ def main(device_name, board, pindict, server_address, server_port, gps_address, 
         start_process_stack(process_stack)
         time.sleep(delay)
         finish_process_stack(process_stack)
-        print("Collected data: ", data)
         finish_send_thread()
+        print("Collected data: ", data)
         new_send_thread(data.copy(), device_name, full_address)
     
 if __name__=="__main__":
