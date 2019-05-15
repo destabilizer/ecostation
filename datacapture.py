@@ -119,7 +119,7 @@ def process_init_board(com_port, sampling_period):
     return t
 
 def process_gps(datadict):
-    t = KThread(target=write_data_from_gps, args=(datadict))
+    t = KThread(target=write_data_from_gps, args=(datadict,))
     t.setName('gps')
     return t
 
