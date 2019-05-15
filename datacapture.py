@@ -26,7 +26,7 @@ def connect_gps(address, port, timeout):
 
 def init_gps(address, port, timeout, gps_times_to_reconnect):
     connect_gps(address, port, timeout)
-    init_gps_start(gps_times_to_reconnect)
+    init_gps_stat(gps_times_to_reconnect)
     for i in range(gps_times_to_reconnect):
         get_raw_gps()
     
