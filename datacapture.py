@@ -16,6 +16,8 @@ gpsclient = None
 gps_stat = None
 sendthread = None
 
+## GPS actions
+
 def connect_gps(address, port, timeout):
     global gpsclient
     gpsclient = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -33,23 +35,6 @@ def reconnect_gps(address, port, timeout):
     gpsclient.close()
     connect_gps(address, port, timeout)
 
-def init_board(com_port, sampling_period):
-    global board
-    board = Arduino(com_port)
-    board.samplingOn(sampling_period)
-    
-def process_init_gps(address, port, timeout, gps_times_to_reconnect):
-    t = KThread(target=init_gps, args=(address, port, timeout, gps_times_to_reconnect))
-    return t
-    
-def process_reconnect_gps(address, port, timeout):
-    t = KThread(target=reconnect_gps, args=(address, port, timeout))
-    return t
-    
-def process_init_board(com_port, sampling_period):
-    t = KThread(target=init_board, args=(com_port, sampling_period))
-    return t
-    
 def init_gps_stat(size):
     global gps_stat
     gps_stat = deque(size*[False], size)
@@ -65,8 +50,9 @@ def get_raw_gps():
     gpsclient.send(b'GET') #probably this is not needed at all
     try:
         b = gpsclient.recv(4096)
+        gps_stat.append('False')
     except socket.timeout:
-        gps_stat.append()
+        gps_stat.append('True')
         raise socket.timeout
     return b
 
@@ -80,14 +66,21 @@ def convert_gps(bytes_gps_data):
     datadict["height"] = list_gps[3]
     return datadict
 
-def get_gps(address, port):
+def get_gps():
     r = get_raw_gps()
     return convert_gps(r)
 
-def write_data_from_gps(address, port, datadict):
-    datadict.update(get_gps(address, port))
+def write_data_from_gps(datadict):
+    datadict.update(get_gps())
     datadict["gps_collected"] = True
-    
+
+## Board actions
+
+def init_board(com_port, sampling_period):
+    global board
+    board = Arduino(com_port)
+    board.samplingOn(sampling_period)
+
 def init_pins(board, pindict):
     for n, t in pindict.values():
         if t == "a":
@@ -100,24 +93,39 @@ def init_pins(board, pindict):
 def _init_pins(board, pindict):
     init_pins(board, pindict)
     time.sleep(1)
-
-def process_init_pins(board, pindict):
-    p = KThread(target=_init_pins, args=(board, pindict))
-    return p
-
+        
 def get_data_from_pin(board, pin_number, pin_type):
     if pin_type == "a":
         return board.analog[pin_number].read()
     elif pin_type == "d":
         return board.digital[pin_number].read()
 
-def write_data(func, args, datadict, dataname):
-    r = func(*args)
-    datadict[dataname] = r
-
 def write_data_from_pin(board, pin_number, pin_type, datadict, dataname):
     write_data(get_data_from_pin, (board, pin_number, pin_type), datadict, dataname)
     datadict[dataname+"_collected"] = True
+
+## Threading routines
+    
+def process_init_gps(address, port, timeout, gps_times_to_reconnect):
+    t = KThread(target=init_gps, args=(address, port, timeout, gps_times_to_reconnect))
+    return t
+    
+def process_reconnect_gps(address, port, timeout):
+    t = KThread(target=reconnect_gps, args=(address, port, timeout))
+    return t
+    
+def process_init_board(com_port, sampling_period):
+    t = KThread(target=init_board, args=(com_port, sampling_period))
+    return t
+
+def process_gps(datadict):
+    t = KThread(target=write_data_from_gps, args=(datadict))
+    t.setName('gps')
+    return t
+
+def process_init_pins(board, pindict):
+    p = KThread(target=_init_pins, args=(board, pindict))
+    return p
 
 def process_pins(board, pindict, datadict):
     process_stack = []
@@ -137,19 +145,18 @@ def join_process_stack(process_stack):
     for d, p in process_stack:
         p.join()
 
-def send_data(dictdata, sourcename, full_address):
-    dictdata["type"] = "data"
-    dictdata["source"] = sourcename
-    req = requests.post(full_address, json=dictdata)
-    return (req.status_code, req.reason)
-
-def finish_thread(kthr):
-    if kthr.isAlive():
+def finish_thread(kthr, dont_kill=False):
+    if not dont_kill and kthr.isAlive():
         kthr.terminate()
         print("Thread", kthr.getName(), "is killed!")
     else:
         kthr.join()
         print("Thread", kthr.getName(), "is finished")
+
+def finish_process_stack(process_stack, exceptions=[], dont_kill=[]):
+    for p in process_stack:
+        if p.getName() in exceptions: continue
+        finish_thread(p, dont_kill=(p.getName() in dont_kill))
 
 def new_send_thread(data, device_name, full_address):
     global sendthread
@@ -163,10 +170,18 @@ def start_send_thread():
 def finish_send_thread():
     finish_thread(sendthread)
 
-def finish_process_stack(process_stack):
-    for p in process_stack:
-        finish_thread(p)
+## Data processing
 
+def write_data(func, args, datadict, dataname):
+    r = func(*args)
+    datadict[dataname] = r
+
+def send_data(dictdata, sourcename, full_address):
+    dictdata["type"] = "data"
+    dictdata["source"] = sourcename
+    req = requests.post(full_address, json=dictdata)
+    return (req.status_code, req.reason)
+        
 def new_data(data, pindict):
     mil = int(time.time()*1000)%1000
     ts = time.gmtime()
@@ -185,6 +200,41 @@ def create_local_db(mongo_adress, mongo_port):
 
 def isert_local_db(data):
     local_db.insert_one(data)
+
+
+## GPS reconnection routine
+
+is_reconnecting_gps = False
+reconnecting_step = 0
+rgps = None
+
+def init_gps_reconnection(gps_addres, gps_port, gps_timeout):
+    global is_reconnecting_gps
+    global reconnecting_step
+    global rgps
+    is_reconnecting_gps = True
+    reconnecting_step = 0
+    rgps =  process_reconnect_gps(gps_address, gps_port, gps_timeout)
+
+def set_gps_reconnection():
+    global is_reconnecting_gps
+    is_reconnecting_gps = True
+    
+def kill_gps_reconnection_and_start_new(gps_address, gps_port, gps_timeout):
+    global rgps
+    rgps.terminate()
+    init_gps_reconnection()
+    rgps.start()
+
+def add_gps_reconnection_step():
+    global reconnecting_step
+    reconnecting_step += 1
+
+def finish_gps_reconnection():
+    global rgps
+    global is_reconnecting_gps
+    rgps.join()
+    is_reconnecting_gps = False
     
 #def test():
 #    data = {"temp": 20, "dust": 0.4}
@@ -196,11 +246,14 @@ def main(device_name, com_port, sampling_period, pindict,
          server_address, server_port,
          gps_address,       gps_port,
          mongo_address,   mongo_port
-         delay, gps_times_to_reconnect, use_local_db):
+         delay, use_local_db,
+         gps_times_to_reconnect, gps_reconnect_wait):
 
     global board
 
-    t_gps = process_init_gps(gps_address, gps_port, delay*0.99, gps_times_to_reconnect) # Initialization block
+    gps_timeout = delay*0.99
+    t_gps = process_init_gps(gps_address, gps_port,
+                             gps_timeout, gps_times_to_reconnect) # Initialization
     t_board = process_init_board(com_port, sampling_period)
     t_gps.start()
     t_board.start()
@@ -212,48 +265,38 @@ def main(device_name, com_port, sampling_period, pindict,
     
     if use_local_db: create_local_db(mongo_adress, mongo_port)     # Using local db
     
-    full_address = "http://" + str(server_address) +\              # Server address
-                       + ":" + str(server_port) + "/"
+    full_server_address = "http://" + str(server_address) +\       # Server address
+                        + ":" + str(server_port) + "/"
     data = {}
-
     while True:                                                    # mainloop
-        if sendthread:
-            print("starting sending data")
-            start_send_thread()
-        
         new_data(data, pindict)
-        process_stack = process_pins(board, pindict, data)
-        pgps = process_gps(gps_address, gps_port, data)
-        process_stack.append(pgps)
+        
+        process_stack = []
+        add_pins = lambda: process_stack.extend(process_pins(board, pindict, data)) # add pins thread
+        add_send = lambda: process_stack.append(sendthread)         # add data_send thread to stack
+        add_gps  = lambda: process_stack.append(process_gps(data))  # add gps thread to stack
+
+        add_pins()
+        if sendthread: add_send()
+        if is_reconnecting_gps:
+            if rgps.isAlive() and reconnecting_step >= gps_times_to_reconnect:
+                kill_gps_reconnection_and_start_new(gps_address, gps_port, gps_timeout)
+            elif rgps.isAlive() and reconnecting_step < gps_times_to_reconnect:
+                add_gps_reconnection_step()
+            else:
+                finish_gps_reconnection()
+                add_gps()
+        elif sum_gps_stat():
+            add_gps()
+        else:
+            init_gps_reconnection(gps_addres, gps_port, gps_timeout)
         
         start_process_stack(process_stack)
-        time.sleep(delay) # constant delay for catching data
-        finish_process_stack(process_stack)
-        finish_send_thread()
+        time.sleep(delay)                      # <= constant delay for catching data
+        finish_process_stack(process_stack)    # <= maybe exceptions=["send_data"] 
+        #finish_send_thread()                  #    for giving more time to send data
 
         cdata = data.copy()
         print("Collected data: ", cdata)
-        new_send_thread(cdata, device_name, full_address)
+        new_send_thread(cdata, device_name, full_server_address)
         if use_local_db: insert_local_db(cdata)
-            
-    
-if __name__=="__main__":
-    device_name = "lattepanda1"
-    com_port = 'COM4'
-    sampling_period = 100
-    pindict = {"co": (0, "a"), "sound": (1, "a"), "light": (2, "a")} 
-    server_address = "192.168.8.69"
-    server_port = 8080
-    gps_address = "192.168.8.110"
-    gps_port = 8080
-    delay = 1
-    use_local_db = False
-    mongo_address = None
-    mongo_port = None
-    gps_times_to_reconnect = 4
-    
-    main(device_name, com_port, sampling_period, pindict,
-         server_address, server_port,
-         gps_address        gps_port,
-         mongo_address,   mongo_port
-         delay, gps_times_to_reconnect, use_local_db)
