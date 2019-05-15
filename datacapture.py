@@ -25,7 +25,8 @@ def connect_gps(address, port, timeout):
 def init_gps(addres, port, timeout, gps_times_to_reconnect):
     connect_gps()
     init_gps_start(gps_times_to_reconnect)
-    get_raw_gps()
+    for i in range(gps_times_to_reconnect):
+        get_raw_gps()
     
 def reconnect_gps(address, port, timeout):
     global gpsclient
@@ -37,8 +38,8 @@ def init_board(com_port, sampling_period):
     board = Arduino(com_port)
     board.samplingOn(sampling_period)
     
-def process_connect_gps(address, port, timeout):
-    t = KThread(target=connect_gps, args=(address, port, timeout))
+def process_init_gps(address, port, timeout, gps_times_to_reconnect):
+    t = KThread(target=init_gps, args=(address, port, timeout, gps_times_to_reconnect))
     return t
     
 def process_reconnect_gps(address, port, timeout):
