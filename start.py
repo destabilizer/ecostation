@@ -13,6 +13,7 @@ if __name__=="__main__":
     use_local_db = False
     mongo_address = None
     mongo_port = None
+    send_wait = 4
     gps_times_to_reconnect = 4
     gps_reconnect_wait = 4
     
@@ -20,5 +21,5 @@ if __name__=="__main__":
          server_address, server_port,
          gps_address,       gps_port,
          mongo_address,   mongo_port,
-         delay, use_local_db,
+         delay, use_local_db, send_wait,
          gps_times_to_reconnect, gps_reconnect_wait)

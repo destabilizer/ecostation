@@ -158,29 +158,11 @@ def finish_process_stack(process_stack, exceptions=[], dont_kill=[]):
         if p.getName() in exceptions: continue
         finish_thread(p, dont_kill=(p.getName() in dont_kill))
 
-def new_send_thread(data, device_name, full_address):
-    global sendthread
-    sendthread = KThread(target=send_data, args=(data, device_name, full_address))
-    sendthread.setName("data_send")
-
-def start_send_thread():
-    global sendthread
-    sendthread.start()
-
-def finish_send_thread():
-    finish_thread(sendthread)
-
 ## Data processing
 
 def write_data(func, args, datadict, dataname):
     r = func(*args)
     datadict[dataname] = r
-
-def send_data(dictdata, sourcename, full_address):
-    dictdata["type"] = "data"
-    dictdata["source"] = sourcename
-    req = requests.post(full_address, json=dictdata)
-    return (req.status_code, req.reason)
         
 def new_data(data, pindict):
     mil = int(time.time()*1000)%1000
@@ -191,16 +173,43 @@ def new_data(data, pindict):
         data[k+"_collected"]=False
     data["gps_collected"]=False
 
-def create_local_db(mongo_adress, mongo_port):
+def init_local_db(mongo_adress, mongo_port):
     from pymongo import MongoClient
     global local_db
     ts = time.gmtime()
     hts = time.strftime("ts%Y-%m-%d_%H:%M:%S", ts)
     local_db = MongoClient()[hts]
 
-def isert_local_db(data):
+def insert_local_db(data):
+    global local_db
     local_db.insert_one(data)
 
+def send_data(dictdata, sourcename, full_address):
+    dictdata["type"] = "data"
+    dictdata["source"] = sourcename
+    req = requests.post(full_address, json=dictdata)
+    return (req.status_code, req.reason)
+
+## Sending routines
+
+send_deque = None
+
+def init_send_deque(size):
+    global send_deque
+    send_deque = deque(size*[None], size)
+
+def start_new_send_thread(data, device_name, full_address):
+    global send_deque
+    sendthread = KThread(target=send_data, args=(data, device_name, full_address))
+    sendthread.setName("data_send")
+    send_deque.append(sendthread)
+    print("Starting sending data...")
+    sendthread.start()
+
+def finish_last_send_thread():
+    global send_deque
+    ls = send_deque[0]
+    if ls: finish_thread(ls)
 
 ## GPS reconnection routine
 
@@ -246,7 +255,7 @@ def main(device_name, com_port, sampling_period, pindict,
          server_address, server_port,
          gps_address,       gps_port,
          mongo_address,   mongo_port,
-         delay, use_local_db,
+         delay, use_local_db, send_wait,
          gps_times_to_reconnect, gps_reconnect_wait):
 
     global board
@@ -264,21 +273,22 @@ def main(device_name, com_port, sampling_period, pindict,
     t_gps.join()
 
     init_gps_stat(gps_times_to_reconnect)
-    
-    if use_local_db: create_local_db(mongo_adress, mongo_port)     # Using local db
+    init_send_deque(send_wait)
+    if use_local_db: init_local_db(mongo_adress, mongo_port)     # Using local db
     
     full_server_address = "http://" + str(server_address) + ":" + str(server_port) + "/"
     data = {}
+    
     while True:                                                    # mainloop
         new_data(data, pindict)
         
         process_stack = []
         add_pins = lambda: process_stack.extend(process_pins(board, pindict, data)) # add pins thread
-        add_send = lambda: process_stack.append(sendthread)         # add data_send thread to stack
+        #add_send = lambda: process_stack.append(sendthread)         # add data_send thread to stack
         add_gps  = lambda: process_stack.append(process_gps(data))  # add gps thread to stack
 
         add_pins()
-        if sendthread: add_send()
+        #if sendthread: add_send()
         if is_reconnecting_gps:
             if rgps.isAlive() and reconnecting_step >= gps_reconnect_wait:
                 kill_gps_reconnection_and_start_new(gps_address, gps_port, gps_timeout)
@@ -291,13 +301,13 @@ def main(device_name, com_port, sampling_period, pindict,
             add_gps()
         else:
             start_gps_reconnection(gps_address, gps_port, gps_timeout)
-        
+
         start_process_stack(process_stack)
         time.sleep(delay)                      # <= constant delay for catching data
         finish_process_stack(process_stack)    # <= maybe exceptions=["send_data"] 
-        #finish_send_thread()                  #    for giving more time to send data
+        finish_last_send_thread()              #    for giving more time to send data
 
         cdata = data.copy()
         print("Collected data: ", cdata)
-        new_send_thread(cdata, device_name, full_server_address)
+        start_new_send_thread(cdata, device_name, full_server_address) # sending collected data
         if use_local_db: insert_local_db(cdata)
