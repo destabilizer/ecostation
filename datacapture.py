@@ -8,7 +8,7 @@ from pyfirmata2 import Arduino
 import requests
 import time
 import socket
-from collection import deque
+from collections import deque
 from kthread import KThread
 
 board = None
@@ -208,13 +208,14 @@ is_reconnecting_gps = False
 reconnecting_step = 0
 rgps = None
 
-def init_gps_reconnection(gps_addres, gps_port, gps_timeout):
+def start_gps_reconnection(gps_address, gps_port, gps_timeout):
     global is_reconnecting_gps
     global reconnecting_step
     global rgps
     is_reconnecting_gps = True
     reconnecting_step = 0
     rgps =  process_reconnect_gps(gps_address, gps_port, gps_timeout)
+    rgps.start()
 
 def set_gps_reconnection():
     global is_reconnecting_gps
@@ -223,8 +224,7 @@ def set_gps_reconnection():
 def kill_gps_reconnection_and_start_new(gps_address, gps_port, gps_timeout):
     global rgps
     rgps.terminate()
-    init_gps_reconnection()
-    rgps.start()
+    start_gps_reconnection()
 
 def add_gps_reconnection_step():
     global reconnecting_step
@@ -245,7 +245,7 @@ def finish_gps_reconnection():
 def main(device_name, com_port, sampling_period, pindict,
          server_address, server_port,
          gps_address,       gps_port,
-         mongo_address,   mongo_port
+         mongo_address,   mongo_port,
          delay, use_local_db,
          gps_times_to_reconnect, gps_reconnect_wait):
 
@@ -262,11 +262,12 @@ def main(device_name, com_port, sampling_period, pindict,
     t_pins.start()
     t_pins.join()
     t_gps.join()
+
+    init_gps_stat(gps_times_to_reconnect)
     
     if use_local_db: create_local_db(mongo_adress, mongo_port)     # Using local db
     
-    full_server_address = "http://" + str(server_address) +\       # Server address
-                        + ":" + str(server_port) + "/"
+    full_server_address = "http://" + str(server_address) + ":" + str(server_port) + "/"
     data = {}
     while True:                                                    # mainloop
         new_data(data, pindict)
@@ -279,9 +280,9 @@ def main(device_name, com_port, sampling_period, pindict,
         add_pins()
         if sendthread: add_send()
         if is_reconnecting_gps:
-            if rgps.isAlive() and reconnecting_step >= gps_times_to_reconnect:
+            if rgps.isAlive() and reconnecting_step >= gps_reconnect_wait:
                 kill_gps_reconnection_and_start_new(gps_address, gps_port, gps_timeout)
-            elif rgps.isAlive() and reconnecting_step < gps_times_to_reconnect:
+            elif rgps.isAlive() and reconnecting_step < gps_reconnect_wait:
                 add_gps_reconnection_step()
             else:
                 finish_gps_reconnection()
@@ -289,7 +290,7 @@ def main(device_name, com_port, sampling_period, pindict,
         elif sum_gps_stat():
             add_gps()
         else:
-            init_gps_reconnection(gps_addres, gps_port, gps_timeout)
+            start_gps_reconnection(gps_address, gps_port, gps_timeout)
         
         start_process_stack(process_stack)
         time.sleep(delay)                      # <= constant delay for catching data

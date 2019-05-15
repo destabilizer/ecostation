@@ -18,7 +18,7 @@ if __name__=="__main__":
     
     main(device_name, com_port, sampling_period, pindict,
          server_address, server_port,
-         gps_address        gps_port,
-         mongo_address,   mongo_port
+         gps_address,       gps_port,
+         mongo_address,   mongo_port,
          delay, use_local_db,
          gps_times_to_reconnect, gps_reconnect_wait)
