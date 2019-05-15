@@ -24,8 +24,8 @@ def connect_gps(address, port, timeout):
     gpsclient.connect((address, port))
     gpsclient.settimeout(timeout)
 
-def init_gps(addres, port, timeout, gps_times_to_reconnect):
-    connect_gps()
+def init_gps(address, port, timeout, gps_times_to_reconnect):
+    connect_gps(address, port, timeout)
     init_gps_start(gps_times_to_reconnect)
     for i in range(gps_times_to_reconnect):
         get_raw_gps()
