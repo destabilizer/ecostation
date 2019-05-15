@@ -224,7 +224,7 @@ def set_gps_reconnection():
 def kill_gps_reconnection_and_start_new(gps_address, gps_port, gps_timeout):
     global rgps
     rgps.terminate()
-    start_gps_reconnection()
+    start_gps_reconnection(gps_address, gps_port, gps_timeout)
 
 def add_gps_reconnection_step():
     global reconnecting_step
