@@ -4,24 +4,69 @@
 This is a simple script that captures data from sensors and send it to the ecostatus server.
 '''
 
-import json
+from pyfirmata2 import Arduino
 import requests
 import time
 import socket
+from collection import deque
 from kthread import KThread
 
+board = None
 gpsclient = None
+gps_stat = None
 sendthread = None
 
-def connect_gps(address, port):
+def connect_gps(address, port, timeout):
     global gpsclient
     gpsclient = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     gpsclient.connect((address, port))
-    return gpsclient
+    gpsclient.settimeout(timeout)
+
+def init_gps(addres, port, timeout, gps_times_to_reconnect):
+    connect_gps()
+    init_gps_start(gps_times_to_reconnect)
+    get_raw_gps()
+    
+def reconnect_gps(address, port, timeout):
+    global gpsclient
+    gpsclient.close()
+    connect_gps(address, port, timeout)
+
+def init_board(com_port, sampling_period):
+    global board
+    board = Arduino(com_port)
+    board.samplingOn(sampling_period)
+    
+def process_connect_gps(address, port, timeout):
+    t = KThread(target=connect_gps, args=(address, port, timeout))
+    return t
+    
+def process_reconnect_gps(address, port, timeout):
+    t = KThread(target=reconnect_gps, args=(address, port, timeout))
+    return t
+    
+def process_init_board(com_port, sampling_period):
+    t = KThread(target=init_board, args=(com_port, sampling_period))
+    return t
+    
+def init_gps_stat(size):
+    global gps_stat
+    gps_stat = deque(size*[False], size)
+
+def sum_gps_stat():
+    global gps_stat
+    for b in gps_stat:
+        if b == False: break
+    else:
+        return True
 
 def get_raw_gps():
-    gpsclient.send(b'GET')
-    b = gpsclient.recv(4096)
+    gpsclient.send(b'GET') #probably this is not needed at all
+    try:
+        b = gpsclient.recv(4096)
+    except socket.timeout:
+        gps_stat.append()
+        raise socket.timeout
     return b
 
 def convert_gps(bytes_gps_data):
@@ -41,11 +86,6 @@ def get_gps(address, port):
 def write_data_from_gps(address, port, datadict):
     datadict.update(get_gps(address, port))
     datadict["gps_collected"] = True
-
-def process_gps(address, port, datadict):
-    p = KThread(target=write_data_from_gps, args=(address, port, datadict))
-    p.setName("gps")
-    return p
     
 def init_pins(board, pindict):
     for n, t in pindict.values():
@@ -55,6 +95,14 @@ def init_pins(board, pindict):
             board.digital[n].enable_reporting()
         else:
             pass
+
+def _init_pins(board, pindict):
+    init_pins(board, pindict)
+    time.sleep(1)
+
+def process_init_pins(board, pindict):
+    p = KThread(target=_init_pins, args=(board, pindict))
+    return p
 
 def get_data_from_pin(board, pin_number, pin_type):
     if pin_type == "a":
@@ -143,23 +191,34 @@ def isert_local_db(data):
 #        mainloop("testclient", "http://127.0.0.1:8080/")
 #        sleep(1)
 
-def main(device_name, board, pindict,
+def main(device_name, com_port, sampling_period, pindict,
          server_address, server_port,
          gps_address,       gps_port,
          mongo_address,   mongo_port
-         delay, use_local_db):
+         delay, gps_times_to_reconnect, use_local_db):
 
-    init_pins(board, pindict)
-    connect_gps(gps_address, gps_port)
-    time.sleep(1)
-    if use_local_db: create_local_db(mongo_adress, mongo_port)
-    full_address = "http://" + str(server_address) +\
+    global board
+
+    t_gps = process_init_gps(gps_address, gps_port, delay*0.99, gps_times_to_reconnect) # Initialization block
+    t_board = process_init_board(com_port, sampling_period)
+    t_gps.start()
+    t_board.start()
+    t_board.join()
+    t_pins = process_init_pins(board, pindict)
+    t_pins.start()
+    t_pins.join()
+    t_gps.join()
+    
+    if use_local_db: create_local_db(mongo_adress, mongo_port)     # Using local db
+    
+    full_address = "http://" + str(server_address) +\              # Server address
                        + ":" + str(server_port) + "/"
     data = {}
-    new_send_thread(data, device_name, full_address)
-    while True:
-        print("starting sending data")
-        start_send_thread()
+
+    while True:                                                    # mainloop
+        if sendthread:
+            print("starting sending data")
+            start_send_thread()
         
         new_data(data, pindict)
         process_stack = process_pins(board, pindict, data)
@@ -178,12 +237,9 @@ def main(device_name, board, pindict,
             
     
 if __name__=="__main__":
-    from pyfirmata2 import Arduino
-    
-    board = Arduino('COM4')
-    board.samplingOn(100)
-    
     device_name = "lattepanda1"
+    com_port = 'COM4'
+    sampling_period = 100
     pindict = {"co": (0, "a"), "sound": (1, "a"), "light": (2, "a")} 
     server_address = "192.168.8.69"
     server_port = 8080
@@ -193,9 +249,10 @@ if __name__=="__main__":
     use_local_db = False
     mongo_address = None
     mongo_port = None
+    gps_times_to_reconnect = 4
     
-    main(device_name, board, pindict,
+    main(device_name, com_port, sampling_period, pindict,
          server_address, server_port,
          gps_address        gps_port,
          mongo_address,   mongo_port
-         delay, use_local_db)
+         delay, gps_times_to_reconnect, use_local_db)
