@@ -4,7 +4,8 @@
 This is a simple script that captures data from sensors and send it to the ecostatus server.
 '''
 
-from pyfirmata2 import Arduino
+#from pyfirmata2 import Arduino
+from random import random
 import requests
 import time
 import socket
@@ -67,8 +68,9 @@ def convert_gps(bytes_gps_data):
     return datadict
 
 def get_gps():
-    r = get_raw_gps()
-    return convert_gps(r)
+    #r = get_raw_gps()
+    d = {"lattitde":100*random(), "longitude":100*random(), "height":100*random()}
+    return d
 
 def write_data_from_gps(datadict):
     datadict.update(get_gps())
@@ -95,10 +97,11 @@ def _init_pins(board, pindict):
     time.sleep(1)
         
 def get_data_from_pin(board, pin_number, pin_type):
-    if pin_type == "a":
-        return board.analog[pin_number].read()
-    elif pin_type == "d":
-        return board.digital[pin_number].read()
+    #if pin_type == "a":
+    #    return board.analog[pin_number].read()
+    #elif pin_type == "d":
+    #    return board.digital[pin_number].read()
+    return random()
 
 def write_data_from_pin(board, pin_number, pin_type, datadict, dataname):
     write_data(get_data_from_pin, (board, pin_number, pin_type), datadict, dataname)
@@ -260,17 +263,17 @@ def main(device_name, com_port, sampling_period, pindict,
 
     global board
 
-    gps_timeout = delay*0.99
-    t_gps = process_init_gps(gps_address, gps_port,
-                             gps_timeout, gps_times_to_reconnect) # Initialization
-    t_board = process_init_board(com_port, sampling_period)
-    t_gps.start()
-    t_board.start()
-    t_board.join()
-    t_pins = process_init_pins(board, pindict)
-    t_pins.start()
-    t_pins.join()
-    t_gps.join()
+    #gps_timeout = delay*0.99
+    #t_gps = process_init_gps(gps_address, gps_port,
+    #                         gps_timeout, gps_times_to_reconnect) # Initialization
+    #t_board = process_init_board(com_port, sampling_period)
+    #t_gps.start()
+    #t_board.start()
+    #t_board.join()
+    #t_pins = process_init_pins(board, pindict)
+    #t_pins.start()
+    #t_pins.join()
+    #t_gps.join()
 
     init_gps_stat(gps_times_to_reconnect)
     init_send_deque(send_wait)
@@ -289,18 +292,18 @@ def main(device_name, com_port, sampling_period, pindict,
 
         add_pins()
         #if sendthread: add_send()
-        if is_reconnecting_gps:
-            if rgps.isAlive() and reconnecting_step >= gps_reconnect_wait:
-                kill_gps_reconnection_and_start_new(gps_address, gps_port, gps_timeout)
-            elif rgps.isAlive() and reconnecting_step < gps_reconnect_wait:
-                add_gps_reconnection_step()
-            else:
-                finish_gps_reconnection()
-                add_gps()
-        elif sum_gps_stat():
-            add_gps()
-        else:
-            start_gps_reconnection(gps_address, gps_port, gps_timeout)
+        #if is_reconnecting_gps:
+        #    if rgps.isAlive() and reconnecting_step >= gps_reconnect_wait:
+        #        kill_gps_reconnection_and_start_new(gps_address, gps_port, gps_timeout)
+        #    elif rgps.isAlive() and reconnecting_step < gps_reconnect_wait:
+        #        add_gps_reconnection_step()
+        #    else:
+        #        finish_gps_reconnection()
+        #        add_gps()
+        #elif sum_gps_stat():
+        add_gps()
+        #else:
+        #    start_gps_reconnection(gps_address, gps_port, gps_timeout)
 
         start_process_stack(process_stack)
         time.sleep(delay)                      # <= constant delay for catching data
