@@ -177,7 +177,7 @@ def init_local_db(mongo_adress, mongo_port):
     from pymongo import MongoClient
     global local_db
     ts = time.gmtime()
-    hts = time.strftime("ts%Y-%m-%d_%H:%M:%S", ts)
+    hts = time.strftime("ts%Y-%m-%d_%H-%M-%S", ts)
     local_db = MongoClient()[hts]
 
 def insert_local_db(data):
