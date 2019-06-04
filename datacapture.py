@@ -261,7 +261,8 @@ def main(device_name, com_port, sampling_period, pindict,
     
     global board
     
-    gps_times_to_reconnect = (gps_timeout_to_reconnect // delay) +1
+    gps_times_to_reconnect = (gps_timeout_to_reconnect + delay - 1) // delay
+    send_times_to_try = (send_wait + delay - 1) // delay
     delay /= 1000
     send_wait /= 1000
     gps_reconnect_wait /= 1000
@@ -278,7 +279,7 @@ def main(device_name, com_port, sampling_period, pindict,
     t_gps.join()
 
     init_gps_stat(gps_times_to_reconnect)
-    init_send_deque(send_wait)
+    init_send_deque(send_times_to_try)
     if use_local_db: init_local_db(mongo_adress, mongo_port)     # Using local db
     
     full_server_address = "http://" + str(server_address) + ":" + str(server_port) + "/"
