@@ -256,10 +256,15 @@ def main(device_name, com_port, sampling_period, pindict,
          gps_address,       gps_port,
          mongo_address,   mongo_port,
          delay, use_local_db, send_wait,
-         gps_times_to_reconnect, gps_reconnect_wait):
-
+         gps_timeout_to_reconnect, gps_reconnect_wait):
+    
+    
     global board
-
+    
+    gps_times_to_reconnect = (gps_timeout_to_reconnect // delay) +1
+    delay /= 1000
+    send_wait /= 1000
+    gps_reconnect_wait /= 1000
     gps_timeout = delay*0.99
     t_gps = process_init_gps(gps_address, gps_port,
                              gps_timeout, gps_times_to_reconnect) # Initialization

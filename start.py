@@ -9,17 +9,17 @@ if __name__=="__main__":
     server_port = 8080
     gps_address = "192.168.8.110"
     gps_port = 8080
-    delay = 1
+    delay = 100
     use_local_db = False
     mongo_address = None
     mongo_port = None
-    send_wait = 4
-    gps_times_to_reconnect = 4
-    gps_reconnect_wait = 4
+    send_wait = 4000
+    gps_timeout_to_reconnect = 2000
+    gps_reconnect_wait = 3000
     
     main(device_name, com_port, sampling_period, pindict,
          server_address, server_port,
          gps_address,       gps_port,
          mongo_address,   mongo_port,
          delay, use_local_db, send_wait,
-         gps_times_to_reconnect, gps_reconnect_wait)
+         gps_timeout_to_reconnect, gps_reconnect_wait)
