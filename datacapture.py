@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
 """
-This is a simple script that captures data from sensors and send it to the ecostatus server.
+This is the script that collects sensor data and gps coordinates and sends it to the server. See the documentation
+of `main` function for details.
 """
 
 
@@ -306,6 +307,36 @@ def main(device_name, com_port, sampling_period, pindict,
          mongo_address,   mongo_port,
          delay, use_local_db, send_wait,
          gps_timeout_to_reconnect, gps_reconnect_wait):
+
+    """
+    :param device_name: the name that will identify this client, for example "lattepanda"
+    :param com_port: the port on which arduino is connected
+    :param sampling_period: sampling period for pyfirmata2, 100 (ms) recommended
+    :param pindict: dictionary with pin mapping, where key:value pair is data type:(pin type, pin number). See example
+    :param server_address: address of server
+    :param server_port: 
+    :param gps_address: address of server with gps coordinates
+    :param gps_port:
+    :param mongo_address: address of mongodb server
+    :param mongo_port: 
+    :param delay: times to wait between data collecting, in ms
+    :param use_local_db: set True if you want to save data locally for safity, False otherwise
+    :param send_wait: (ms) sending timeout. If data hadn't send in this time, it will be lost until you set use_local_db
+    :param gps_timeout_to_reconnect: (ms) if gps server is unavailable more than this time, it will try to reconnect
+    :param gps_reconnect_wait: (ms) how many time wait for reconnecting to gps server
+
+    This function manages routines what collects data from gps server and pins, saves (or not) them locally and sending
+    it to server. It's working cycle looks like this:
+
+    0. Fix time.
+    1. Initialize threads that collecting data from pins.
+    2. Initialize threads that collecting gps. If gps is reconnecting, wait.
+    3. START ALL THREADS. Data is collecting synchronously.
+    4. Wait delay.
+    5. Let's have a look on threads. Is something is tempting -- killing it. If gps hadn't collected, starting
+    gps reconnection.
+    6. Starting sending data to the server and saving it locally.
+    """
 
     global board
     
